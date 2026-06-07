@@ -1,28 +1,19 @@
 import Contact from '../models/Contact.js';
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import { validationResult } from 'express-validator';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Create email transporter
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  connectionTimeout: 5000,
-  greetingTimeout: 5000,
-  socketTimeout: 5000,
-});
+// Initialize Resend
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const submitContact = async (req, res) => {
   try {
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    if (!process.env.RESEND_API_KEY) {
       return res.status(500).json({
         success: false,
-        message: 'Email credentials are missing on the server.',
+        message: 'Resend API key is missing on the server.',
       });
     }
     // Check for validation errors
@@ -45,10 +36,10 @@ export const submitContact = async (req, res) => {
       status: 'new'
     });
 
-    // Send email notification
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: 'suhaniisagar33@gmail.com',
+    // Send email notification to you
+    const { error: adminError } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'Portfolio Contact <onboarding@resend.dev>',
+      to: process.env.EMAIL_USER || 'suhaniisagar33@gmail.com',
       subject: `🎯 New Portfolio Contact: ${name}`,
       html: `
         <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
@@ -64,13 +55,16 @@ export const submitContact = async (req, res) => {
           </p>
         </div>
       `,
-    };
+    });
 
-    await transporter.sendMail(mailOptions);
+    if (adminError) {
+      console.error('Resend Admin Email Error:', adminError);
+      throw new Error(adminError.message);
+    }
 
     // Send confirmation email to user
-    const confirmationMail = {
-      from: process.env.EMAIL_USER,
+    const { error: confirmError } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'Portfolio Contact <onboarding@resend.dev>',
       to: email,
       subject: '✅ Message Received - Suhani Sagar Portfolio',
       html: `
@@ -87,9 +81,11 @@ export const submitContact = async (req, res) => {
           </p>
         </div>
       `,
-    };
+    });
 
-    await transporter.sendMail(confirmationMail);
+    if (confirmError) {
+      console.error('Could not send confirmation to user (Domain might not be verified on Resend):', confirmError);
+    }
 
     res.status(201).json({
       success: true,
